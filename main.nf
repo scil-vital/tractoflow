@@ -19,10 +19,6 @@ if(params.help) {
                 "run_resample_dwi":"$params.run_resample_dwi",
                 "dwi_resolution":"$params.dwi_resolution",
                 "dwi_interpolation":"$params.dwi_interpolation",
-                "run_resample_t1":"$params.run_resample_t1",
-                "t1_resolution":"$params.t1_resolution",
-                "t1_interpolation":"$params.t1_interpolation",
-                "number_of_tissues":"$params.number_of_tissues",
                 "fa":"$params.fa",
                 "min_fa":"$params.min_fa",
                 "roi_radius":"$params.roi_radius",
@@ -66,7 +62,6 @@ if(params.help) {
                 "local_compress_value":"$params.local_compress_value",
                 "local_random_seed":"$params.local_random_seed",
                 "cpu_count":"$cpu_count",
-                "template_t1":"$params.template_t1",
                 "processes_fodf":"$params.processes_fodf"]
 
     engine = new groovy.text.SimpleTemplateEngine()
@@ -93,13 +88,19 @@ if (params.input && !(params.bids && params.bids_config)){
     log.info "Input: $params.input"
     root = file(params.input)
     data = Channel
-        .fromFilePairs("$root/**/*{bval,bvec,dwi.nii.gz,t1.nii.gz}",
+        .fromFilePairs("$root/**/*{bval,bvec,dwi.nii.gz,mask_wm.nii.gz}",
                        size: 4,
                        maxDepth:1,
                        flat: true) {it.parent.name}
 
     data
         .into{in_data; check_subjects_number}
+
+    pft_maps = Channel
+        .fromFilePairs("$root/**/*{map_csf.nii.gz,map_gm.nii.gz,map_wm.nii.gz}",
+                       size: 3,
+                       maxDepth:1,
+                       flat: true) {it.parent.name}
 
 }
 else if (params.bids || params.bids_config){
@@ -229,17 +230,17 @@ if (params.run_pft_tracking && workflow.profile.contains("ABS")){
 }
 
 
-(dwi_for_resample, gradients, dwi_gradients_for_extract_b0, t1_for_resample) = in_data
-    .map{sid, bvals, bvecs, dwi, t1 -> [
+(dwi_for_resample, gradients, dwi_gradients_for_extract_b0, wm_mask) = in_data
+    .map{sid, bvals, bvecs, dwi, mask_wm -> [
                                         tuple(sid, dwi),
                                         tuple(sid, bvals, bvecs),
                                         tuple(sid, dwi, bvals, bvecs),
-                                        tuple(sid, t1)]}
+                                        tuple(sid, mask_wm)]}
     .separate(4)
 
-gradients.into{gradients_for_dti_shell; gradients_for_fodf_shell; gradients_for_resample_b0}
+gradients.into{gradients_for_dti_shell; gradients_for_fodf_shell; gradients_for_extract_b0}
 
-check_subjects_number.count().into{ number_subj_for_null_check; number_subj_for_compare }
+check_subjects_number.count().set{ number_subj_for_null_check }
 
 number_subj_for_null_check
 .subscribe{a -> if (a == 0)
@@ -288,64 +289,15 @@ process README {
     """
 }
 
-process Extract_B0 {
-    cpus 2
-
-    input:
-    set sid, file(dwi), file(bval), file(bvec) from dwi_gradients_for_extract_b0
-
-    output:
-    set sid, "${sid}__b0_mask.nii.gz" into mask_for_resample
-
-    script:
-    """
-    export ITK_GLOBAL_DEFAULT_NUMBER_OF_THREADS=1
-    export OMP_NUM_THREADS=1
-    export OPENBLAS_NUM_THREADS=1
-    scil_extract_b0.py $dwi $bval $bvec ${sid}__b0.nii.gz --mean\
-        --b0_thr $params.b0_thr_extract_b0 --force_b0_threshold
-    mrthreshold ${sid}__b0.nii.gz ${sid}__b0_mask.nii.gz\
-        --abs 0.00001 -nthreads 1
-    """
-}
-
-process Resample_T1 {
-    cpus 1
-
-    input:
-    set sid, file(t1) from t1_for_resample
-
-    output:
-    set sid, "${sid}__t1_resampled.nii.gz" into t1_for_seg
-
-    script:
-    if(params.run_resample_t1)
-        """
-        export ITK_GLOBAL_DEFAULT_NUMBER_OF_THREADS=1
-        export OMP_NUM_THREADS=1
-        export OPENBLAS_NUM_THREADS=1
-        scil_resample_volume.py $t1 ${sid}__t1_resampled.nii.gz \
-            --resolution $params.t1_resolution \
-            --interp  $params.t1_interpolation
-        """
-    else
-        """
-        mv $t1 ${sid}__t1_resampled.nii.gz
-        """
-}
-
-dwi_for_resample
-    .join(mask_for_resample)
-    .set{dwi_mask_for_resample}
 process Resample_DWI {
     cpus 3
 
     input:
-    set sid, file(dwi), file(mask) from dwi_mask_for_resample
+    set sid, file(dwi) from dwi_for_resample
 
     output:
     set sid, "${sid}__dwi_resampled.nii.gz" into\
-        dwi_for_resample_b0,
+        dwi_for_extract_b0,
         dwi_for_extract_dti_shell,
         dwi_for_extract_fodf_shell
 
@@ -360,13 +312,7 @@ process Resample_DWI {
             --resolution $params.dwi_resolution \
             --interp  $params.dwi_interpolation
         fslmaths dwi_resample.nii.gz -thr 0 dwi_resample_clipped.nii.gz
-        scil_resample_volume.py $mask \
-            mask_resample.nii.gz \
-            --ref dwi_resample.nii.gz \
-            --enforce_dimensions \
-            --interp nn
-        mrcalc dwi_resample_clipped.nii.gz mask_resample.nii.gz\
-            -mult ${sid}__dwi_resampled.nii.gz -quiet -nthreads 1
+        mv dwi_resample_clipped.nii.gz ${sid}__dwi_resampled.nii.gz
         """
     else
         """
@@ -374,18 +320,17 @@ process Resample_DWI {
         """
 }
 
-dwi_for_resample_b0
-    .join(gradients_for_resample_b0)
-    .set{dwi_and_grad_for_resample_b0}
+dwi_for_extract_b0
+    .join(gradients_for_extract_b0)
+    .set{dwi_and_grad_for_extract_b0}
 
-process Resample_B0 {
+process Compute_B0_Mask {
     cpus 3
 
     input:
-    set sid, file(dwi), file(bval), file(bvec) from dwi_and_grad_for_resample_b0
+    set sid, file(dwi), file(bval), file(bvec) from dwi_and_grad_for_extract_b0
 
     output:
-    set sid, "${sid}__b0_resampled.nii.gz" into b0_for_reg
     set sid, "${sid}__b0_mask_resampled.nii.gz" into\
         b0_mask_for_dti_metrics,
         b0_mask_for_fodf,
@@ -520,36 +465,7 @@ process Extract_FODF_Shell {
     """
 }
 
-process Segment_Tissues {
-    cpus 1
-
-    input:
-    set sid, file(t1) from t1_for_seg
-
-    output:
-    set sid, "${sid}__map_wm.nii.gz", "${sid}__map_gm.nii.gz",
-        "${sid}__map_csf.nii.gz" into map_wm_gm_csf_for_pft_maps
-    set sid, "${sid}__mask_wm.nii.gz" into wm_mask_for_pft_tracking, wm_mask_fast
-    file "${sid}__mask_gm.nii.gz"
-    file "${sid}__mask_csf.nii.gz"
-
-    script:
-    """
-    export ITK_GLOBAL_DEFAULT_NUMBER_OF_THREADS=1
-    export OMP_NUM_THREADS=1
-    export OPENBLAS_NUM_THREADS=1
-    fast -t 1 -n $params.number_of_tissues\
-         -H 0.1 -I 4 -l 20.0 -g -o t1.nii.gz $t1
-    scil_image_math.py convert t1_seg_2.nii.gz ${sid}__mask_wm.nii.gz --data_type uint8
-    scil_image_math.py convert t1_seg_1.nii.gz ${sid}__mask_gm.nii.gz --data_type uint8
-    scil_image_math.py convert t1_seg_0.nii.gz ${sid}__mask_csf.nii.gz --data_type uint8
-    mv t1_pve_2.nii.gz ${sid}__map_wm.nii.gz
-    mv t1_pve_1.nii.gz ${sid}__map_gm.nii.gz
-    mv t1_pve_0.nii.gz ${sid}__map_csf.nii.gz
-    """
-}
-
-wm_mask_fast
+wm_mask
     .into{wm_mask_for_local_tracking_mask;wm_mask_for_local_seeding_mask}
 
 dwi_and_grad_for_rf
@@ -670,6 +586,10 @@ process FODF_Metrics {
         --rt $params.relative_threshold --at \${a_threshold}
     """
 }
+
+pft_maps
+    .map{ sid, csf, gm, wm -> [sid, wm, gm, csf]}
+    .set{ map_wm_gm_csf_for_pft_maps }
 
 process PFT_Tracking_Maps {
     cpus 1

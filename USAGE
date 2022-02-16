@@ -24,18 +24,18 @@ DESCRIPTION
                                         │   ├── dwi.nii.gz
                                         │   ├── bval
                                         │   ├── bvec
-                                        │   ├── rev_b0.nii.gz  (optional)
-                                        │   ├── aparc+aseg.nii.gz  (optional)
-                                        │   ├── wmparc.nii.gz  (optional)
-                                        │   └── t1.nii.gz
+                                        │   ├── mask_wm.nii.gz
+                                        │   ├── map_wm.nii.gz (optional)
+                                        │   ├── map_gm.nii.gz (optional)
+                                        │   └── map_csf.nii.gz (optional)
                                         └── S2
                                             ├── dwi.nii.gz
                                             ├── bval
                                             ├── bvec
-                                            ├── rev_b0.nii.gz  (optional)
-                                            ├── aparc+aseg.nii.gz  (optional)
-                                            ├── wmparc.nii.gz  (optional)
-                                            └── t1.nii.gz
+                                            ├── mask_wm.nii.gz
+                                            ├── map_wm.nii.gz (optional)
+                                            ├── map_gm.nii.gz (optional)
+                                            └── map_csf.nii.gz (optional)
 
     --bids=/path/to/[bids]              BIDS folder following the BIDS convention.
 
@@ -69,12 +69,6 @@ OPTIONAL ARGUMENTS (current value)
 --run_resample_dwi                          Run resample DWI ($run_resample_dwi).
 --dwi_resolution                            DWI resolution ($dwi_resolution).
 --dwi_interpolation                         DWI interpolation method [nn, lin, quad, cubic] ($dwi_interpolation).
-
---run_resample_t1                           Run resample T1 ($run_resample_t1).
---t1_resolution                             T1 resolution ($t1_resolution).
---t1_interpolation                          T1 interpolation method [nn, lin, quad, cubic] ($t1_interpolation).
-
---number_of_tissues                         Number of tissue classes ($number_of_tissues).
 
 --fa                                        Initial FA threshold to compute the frf ($fa).
 --min_fa                                    Minimum FA threshold to compute the frf ($min_fa).
@@ -132,10 +126,6 @@ OPTIONAL ARGUMENTS (current value)
 --local_compress_value                      [LOCAL] Compression error threshold ($local_compress_value).
 --local_random_seed                         [LOCAL] List of random seed numbers for the random number generator ($local_random_seed).
                                             Please write them as list separated using commat WITHOUT SPACE e.g. (--local_random_seed 0,1,2)
-
---template_t1                               Path to the template T1 directory for antsBrainExtraction.
-                                            The folder must contain t1_template.nii.gz and t1_brain_probability_map.nii.gz.
-                                            The default path is the human_data folder in the singularity container ($template_t1).
 
 --processes_fodf                            Number of processes for fODF task ($processes_fodf).
 
