@@ -466,7 +466,7 @@ process Extract_FODF_Shell {
 }
 
 wm_mask
-    .into{wm_mask_for_local_tracking_mask;wm_mask_for_local_seeding_mask}
+    .into{wm_mask_for_pft_tracking;wm_mask_for_local_tracking_mask;wm_mask_for_local_seeding_mask}
 
 dwi_and_grad_for_rf
     .join(b0_mask_for_rf)
