@@ -230,13 +230,12 @@ if (params.run_pft_tracking && workflow.profile.contains("ABS")){
 }
 
 
-(dwi_for_resample, gradients, dwi_gradients_for_extract_b0, wm_mask) = in_data
+(dwi_mask_for_resample, gradients, dwi_gradients_for_extract_b0) = in_data
     .map{sid, bvals, bvecs, dwi, mask_wm -> [
-                                        tuple(sid, dwi),
+                                        tuple(sid, dwi, mask_wm),
                                         tuple(sid, bvals, bvecs),
-                                        tuple(sid, dwi, bvals, bvecs),
-                                        tuple(sid, mask_wm)]}
-    .separate(4)
+                                        tuple(sid, dwi, bvals, bvecs)]}
+    .separate(3)
 
 gradients.into{gradients_for_dti_shell; gradients_for_fodf_shell; gradients_for_extract_b0}
 
@@ -289,17 +288,18 @@ process README {
     """
 }
 
-process Resample_DWI {
+process Resample_DWI_And_WM_Mask {
     cpus 3
 
     input:
-    set sid, file(dwi) from dwi_for_resample
+    set sid, file(dwi), file(wm_mask) from dwi_mask_for_resample
 
     output:
     set sid, "${sid}__dwi_resampled.nii.gz" into\
         dwi_for_extract_b0,
         dwi_for_extract_dti_shell,
         dwi_for_extract_fodf_shell
+    set sid, "${sid}__mask_wm_resampled.nii.gz" into wm_mask
 
     script:
     if (params.run_resample_dwi)
@@ -313,11 +313,42 @@ process Resample_DWI {
             --interp  $params.dwi_interpolation
         fslmaths dwi_resample.nii.gz -thr 0 dwi_resample_clipped.nii.gz
         mv dwi_resample_clipped.nii.gz ${sid}__dwi_resampled.nii.gz
+
+        scil_resample_volume.py $wm_mask "${sid}__mask_wm_resampled.nii.gz" \
+        --resolution $params.dwi_resolution --interp nn
         """
     else
         """
         mv $dwi ${sid}__dwi_resampled.nii.gz
+        mv $wm_mask "${sid}__mask_wm_resampled.nii.gz"
         """
+}
+
+process Resample_PFT_Maps {
+    cpus 3
+
+    input:
+    set sid, file(csf), file(gm), file(wm) from pft_maps
+
+    output:
+    set sid,
+    "${sid}__map_csf_resampled.nii.gz",
+    "${sid}__map_gm_resampled.nii.gz",
+     "${sid}__map_wm_resampled.nii.gz" into pft_maps_resampled
+
+    script:
+    """
+    export ITK_GLOBAL_DEFAULT_NUMBER_OF_THREADS=1
+    export OMP_NUM_THREADS=1
+    export OPENBLAS_NUM_THREADS=1
+
+    scil_resample_volume.py $csf "${sid}__map_csf_resampled.nii.gz" \
+    --resolution $params.dwi_resolution --interp lin
+    scil_resample_volume.py $gm "${sid}__map_gm_resampled.nii.gz" \
+    --resolution $params.dwi_resolution --interp lin
+    scil_resample_volume.py $wm "${sid}__map_wm_resampled.nii.gz" \
+    --resolution $params.dwi_resolution --interp lin
+    """
 }
 
 dwi_for_extract_b0
@@ -587,7 +618,7 @@ process FODF_Metrics {
     """
 }
 
-pft_maps
+pft_maps_resampled
     .map{ sid, csf, gm, wm -> [sid, wm, gm, csf]}
     .set{ map_wm_gm_csf_for_pft_maps }
 
