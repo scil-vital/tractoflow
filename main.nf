@@ -337,18 +337,25 @@ process Resample_PFT_Maps {
      "${sid}__map_wm_resampled.nii.gz" into pft_maps_resampled
 
     script:
-    """
-    export ITK_GLOBAL_DEFAULT_NUMBER_OF_THREADS=1
-    export OMP_NUM_THREADS=1
-    export OPENBLAS_NUM_THREADS=1
+    if (params.run_resample_dwi)
+        """
+        export ITK_GLOBAL_DEFAULT_NUMBER_OF_THREADS=1
+        export OMP_NUM_THREADS=1
+        export OPENBLAS_NUM_THREADS=1
 
-    scil_resample_volume.py $csf "${sid}__map_csf_resampled.nii.gz" \
-    --resolution $params.dwi_resolution --interp lin
-    scil_resample_volume.py $gm "${sid}__map_gm_resampled.nii.gz" \
-    --resolution $params.dwi_resolution --interp lin
-    scil_resample_volume.py $wm "${sid}__map_wm_resampled.nii.gz" \
-    --resolution $params.dwi_resolution --interp lin
-    """
+        scil_resample_volume.py $csf "${sid}__map_csf_resampled.nii.gz" \
+        --resolution $params.dwi_resolution --interp lin
+        scil_resample_volume.py $gm "${sid}__map_gm_resampled.nii.gz" \
+        --resolution $params.dwi_resolution --interp lin
+        scil_resample_volume.py $wm "${sid}__map_wm_resampled.nii.gz" \
+        --resolution $params.dwi_resolution --interp lin
+        """
+    else
+        """
+        mv $csf ${sid}__map_csf_resampled.nii.gz
+        mv $gm ${sid}__map_gm_resampled.nii.gz
+        mv $wm ${sid}__map_wm_resampled.nii.gz
+        """
 }
 
 dwi_for_extract_b0
